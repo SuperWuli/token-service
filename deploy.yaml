@@ -1,0 +1,114 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: ${APP}
+  name: ${APP}
+  namespace: ${PROJECT}
+spec:
+  replicas: ${REPLICAS}
+  selector:
+    matchLabels:
+      app: ${APP}
+  template:
+    metadata:
+      labels:
+        app: ${APP}
+    spec:
+      terminationGracePeriodSeconds: 15 # 终止Pod之前等待的秒数
+      nodeSelector:
+        alibabacloud.com/nodepool-id: "np8794f9ffd5cc413a9eb072185bac3cc6"
+      tolerations:
+        - key: "service"
+          operator: "Equal"
+          value: "provisioned"
+          effect: "NoSchedule"
+      containers:
+        - name: ${APP}
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          resources:
+            limits:                   #资源限制
+              cpu: ${LIMITS_CPU}
+              memory: ${LIMITS_MEMORY}
+            requests:                 #资源需求
+              cpu: ${REQUETS_CPU}
+              memory: ${REQUETS_MEMORY}
+          livenessProbe:              #存活性探针，用于判断容器是不是健康
+            failureThreshold: 3       #检测失败几次表示味就绪
+            initialDelaySeconds: 20   #延迟加载时间
+            periodSeconds: 10         #重试时间间隔
+            successThreshold: 1       #检查成功几次表示就绪
+            timeoutSeconds: 3         #超时时间设置
+            httpGet:
+              path: /api/status
+              port: 8090
+              scheme: HTTP
+          readinessProbe:             #就绪性探针，用于判断容器内的程序是否存活
+            failureThreshold: 3
+            periodSeconds: 10
+            initialDelaySeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 3
+            httpGet:
+              path: /api/status
+              port: 8090
+              scheme: HTTP
+          startupProbe:               #启动容器首先执行这个探针，一般用于服务启动时间过长，防止被其他探针意外杀死
+            failureThreshold: 3
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+            tcpSocket:
+              port: 8090
+          volumeMounts:
+            - name: app-config
+              mountPath: /etc/axonhub/config.yml
+              subPath: config.yml
+              readOnly: true
+      volumes:
+        - name: app-config
+          configMap:
+            name: ${APP}-config
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP}-svc
+  namespace: ${PROJECT}
+  labels:
+    app: ${APP}
+spec:
+  selector:
+    app: ${APP}
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80                    #svc端口
+      targetPort: 8090             # pod端口
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${APP}-ingress
+  namespace: ${PROJECT}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: token-service.jinguobyte.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: ${APP}-svc
+                port:
+                  number: 80
+            path: /
+            pathType: Prefix
