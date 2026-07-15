@@ -236,7 +236,12 @@ func TestConvertUserToUserInfo_WithProjectRoles(t *testing.T) {
 	require.Equal(t, testProject.ID, projectInfo.ProjectID.ID)
 	require.Equal(t, ent.TypeProject, projectInfo.ProjectID.Type)
 	require.Equal(t, false, projectInfo.IsOwner)
-	require.ElementsMatch(t, []string{"project_scope_1", "project_scope_2"}, projectInfo.Scopes)
+	// Effective project scopes = membership scopes ∪ project role scopes.
+	require.ElementsMatch(t, []string{
+		"project_scope_1", "project_scope_2",
+		"manage_project_channels", "manage_project_users",
+		"read_project_channels",
+	}, projectInfo.Scopes)
 
 	// Verify project roles
 	require.Len(t, projectInfo.Roles, 2)
@@ -323,7 +328,8 @@ func TestConvertUserToUserInfo_MixedRoles(t *testing.T) {
 	require.Len(t, userInfo.Projects, 1)
 	projectInfo := userInfo.Projects[0]
 	require.Equal(t, true, projectInfo.IsOwner)
-	require.ElementsMatch(t, []string{"up_scope_1"}, projectInfo.Scopes)
+	// Effective project scopes = membership scopes ∪ project role scopes.
+	require.ElementsMatch(t, []string{"up_scope_1", "project_scope_1"}, projectInfo.Scopes)
 
 	// Verify project roles
 	require.Len(t, projectInfo.Roles, 1)

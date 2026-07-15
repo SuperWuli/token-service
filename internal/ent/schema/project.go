@@ -121,6 +121,9 @@ func (Project) Policy() ent.Policy {
 			scopes.UserProjectScopeReadRule(scopes.ScopeReadProjects),
 			scopes.OwnerRule(),
 			scopes.UserReadScopeRule(scopes.ScopeReadProjects),
+			// Project members can read their own project even without the
+			// system-only read_projects scope.
+			scopes.ProjectMemberReadRule(),
 		},
 		Mutation: scopes.MutationPolicy{
 			scopes.OwnerRule(),

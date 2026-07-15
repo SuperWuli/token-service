@@ -102,6 +102,9 @@ func (User) Policy() ent.Policy {
 		Query: scopes.QueryPolicy{
 			scopes.OwnerRule(),
 			scopes.UserReadScopeRule(scopes.ScopeReadUsers),
+			// Project members with project-level read_users can read the users
+			// of the project in context (scoped via the project_users edge).
+			scopes.UserProjectMemberReadRule(scopes.ScopeReadUsers),
 			scopes.UserOwnedQueryRule(),
 		},
 		Mutation: scopes.MutationPolicy{

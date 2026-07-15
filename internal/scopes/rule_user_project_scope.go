@@ -10,6 +10,7 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/privacy"
+	"github.com/looplj/axonhub/internal/ent/userproject"
 )
 
 type ProjectOwnedFilter interface {
@@ -48,6 +49,86 @@ func userHasProjectScope(user *ent.User, projectID int, requiredScope ScopeSlug)
 	}
 
 	return false
+}
+
+// isProjectMember reports whether the user is a member of (or a system owner of) the given project.
+func isProjectMember(user *ent.User, projectID int) bool {
+	if user.IsOwner {
+		return true
+	}
+
+	_, found := lo.Find(user.Edges.ProjectUsers, func(projectUser *ent.UserProject) bool {
+		return projectUser.ProjectID == projectID
+	})
+
+	return found
+}
+
+// ProjectMemberReadRule allows a user to read the project referenced by the
+// project ID in context when they are a member of it.
+//
+// The dedicated read_projects scope is system-only and can never be held by a
+// project role, so without this rule non-owner project members are unable to
+// read their own project node — which every project-scoped page resolves first
+// via `node(id: Project) { ... }`. Reading is limited to the single project in
+// context; broader project listing still requires the read_projects scope.
+func ProjectMemberReadRule() privacy.QueryRule {
+	return privacy.FilterFunc(func(ctx context.Context, q privacy.Filter) error {
+		projectID, hasProjectID := contexts.GetProjectID(ctx)
+		if !hasProjectID {
+			return privacy.Skipf("Project ID not found in context")
+		}
+
+		currentUser, err := getUserFromContext(ctx)
+		if err != nil {
+			return privacy.Skipf("User not found in context")
+		}
+
+		pf, ok := q.(*ent.ProjectFilter)
+		if !ok {
+			return privacy.Skipf("Not a project query")
+		}
+
+		if !isProjectMember(currentUser, projectID) {
+			return privacy.Skipf("User %d is not a member of project %d", currentUser.ID, projectID)
+		}
+
+		pf.WhereID(entql.IntEQ(projectID))
+
+		return privacy.Allowf("User %d can read their project %d", currentUser.ID, projectID)
+	})
+}
+
+// UserProjectMemberReadRule allows a user holding the required scope at project
+// level (or system level) to read the users that belong to the project in
+// context. The User entity has no project_id column, so scoping is applied
+// through the project_users edge. This complements UserReadScopeRule, which
+// only recognises the system-level scope.
+func UserProjectMemberReadRule(requiredScope ScopeSlug) privacy.QueryRule {
+	return privacy.FilterFunc(func(ctx context.Context, q privacy.Filter) error {
+		projectID, hasProjectID := contexts.GetProjectID(ctx)
+		if !hasProjectID {
+			return privacy.Skipf("Project ID not found in context")
+		}
+
+		currentUser, err := getUserFromContext(ctx)
+		if err != nil {
+			return privacy.Skipf("User not found in context")
+		}
+
+		uf, ok := q.(*ent.UserFilter)
+		if !ok {
+			return privacy.Skipf("Not a user query")
+		}
+
+		if !HasSystemScope(currentUser, requiredScope) && !userHasProjectScope(currentUser, projectID, requiredScope) {
+			return privacy.Skipf("User %d can not read users in project %d with scope %s", currentUser.ID, projectID, requiredScope)
+		}
+
+		uf.WhereHasProjectUsersWith(userproject.ProjectID(projectID))
+
+		return privacy.Allowf("User %d can read users in project %d with scope %s", currentUser.ID, projectID, requiredScope)
+	})
 }
 
 // UserProjectScopeReadRule allows users to query projects they are members of.

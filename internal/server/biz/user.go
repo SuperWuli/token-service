@@ -320,17 +320,31 @@ func ConvertUserToUserInfo(ctx context.Context, u *ent.User) *objects.UserInfo {
 		// Convert project roles to objects.RoleInfo
 		roles := projectRoles[up.ProjectID]
 
+		// Effective project scopes are the union of the membership's direct
+		// scopes and the scopes granted by the user's project-level roles.
+		// This must match backend enforcement (scopes.userHasProjectScope /
+		// authz.userHasScope), otherwise role-granted permissions are enforced
+		// by the server but invisible to the client (menu/permission mismatch).
+		projectScopeSet := make(map[string]bool)
+		for _, scope := range up.Scopes {
+			projectScopeSet[scope] = true
+		}
+
 		projectRoleInfos := make([]objects.RoleInfo, 0, len(roles))
 		for _, r := range roles {
 			projectRoleInfos = append(projectRoleInfos, objects.RoleInfo{
 				Name: r.Name,
 			})
+
+			for _, scope := range r.Scopes {
+				projectScopeSet[scope] = true
+			}
 		}
 
 		userProjects = append(userProjects, objects.UserProjectInfo{
 			ProjectID: objects.GUID{Type: ent.TypeProject, ID: up.ProjectID},
 			IsOwner:   up.IsOwner,
-			Scopes:    up.Scopes,
+			Scopes:    lo.Keys(projectScopeSet),
 			Roles:     projectRoleInfos,
 		})
 	}
